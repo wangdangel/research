@@ -254,6 +254,28 @@ const SCALES = {
 function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function ageKernel(age, peakMin, peakMax){ const min=16, max=99; if(age<=peakMin) return clamp((age-min)/(peakMin-min),0,1); if(age>=peakMax) return clamp((max-age)/(max-peakMax),0,1); return 1.0; }
 
+// ---------------- Country score (uses dropdown + urban toggle) ----------------
+const countrySelect = document.getElementById('country_select');
+const manualCountryDiv = document.getElementById('manual_country_div');
+const manualCountryInput = document.getElementById('country_manual');
+const urbanToggle = document.getElementById('urban_toggle'); // checkbox you added
+
+function getCountryScore(){
+  // prefer <option data-score=""> if present; otherwise fall back to SCALES.culture.mapping
+  let base = 0.5;
+  if (countrySelect.value === 'MANUAL') {
+    base = parseFloat(manualCountryInput.value) || 0.5;
+  } else {
+    const opt = countrySelect.options[countrySelect.selectedIndex];
+    const ds = parseFloat(opt.getAttribute('data-score'));
+    if (!isNaN(ds)) base = ds;
+    else base = SCALES.culture.mapping[countrySelect.value] ?? 0.5;
+  }
+  // urban adjustment (cap at 1)
+  if (urbanToggle && urbanToggle.checked) base = Math.min(1, base + 0.05);
+  return clamp(base, 0, 1);
+}
+
 // ---------------- Read inputs & derive synthetic scores ----------------
 function readInputs(){
   const age = parseInt(document.getElementById('age').value) || 25;
@@ -295,10 +317,10 @@ function readInputs(){
   if(!isNaN(peerOverride)) peerNorm = clamp(peerOverride,0,1);
   else { const pSum = peerChecks.reduce((a,b)=>a+b,0); peerNorm = clamp(pSum,0,SCALES.peer.cap); }
 
-  // Culture value
+  // Culture value (UPDATED to use dropdown + urban toggle)
   let cultureVal;
   if(country === 'MANUAL') cultureVal = clamp(countryManual || 0.5,0,1);
-  else cultureVal = SCALES.culture.mapping[country] || 0.5;
+  else cultureVal = getCountryScore();
 
   return { age, gender, race, soiNorm, sensationNorm, alcoholVal, partySetting, peerNorm, cultureVal, religion, interactions, appUse };
 }
@@ -402,12 +424,34 @@ function render(){
 
 // ---------------- Wire UI events ----------------
 function attach(){
-  document.getElementById('country_select').addEventListener('change', (e)=>{ document.getElementById('manual_country_div').style.display = e.target.value==='MANUAL' ? 'block' : 'none'; update(); });
+  // country manual toggle
+  document.getElementById('country_select').addEventListener('change', (e)=>{
+    document.getElementById('manual_country_div').style.display = e.target.value==='MANUAL' ? 'block' : 'none';
+    update();
+  });
+
+  // live updates for all controls
   Array.from(document.querySelectorAll('#controls input, #controls select')).forEach(el=>el.addEventListener('input', update));
 
-  document.getElementById('downloadScales').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(SCALES,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='scales.json'; a.click(); URL.revokeObjectURL(url); });
+  // explicit listeners for country manual + urban toggle to ensure updates
+  if (manualCountryInput) manualCountryInput.addEventListener('input', update);
+  if (urbanToggle) urbanToggle.addEventListener('change', update);
 
-  document.getElementById('exportBtn').addEventListener('click', ()=>{ const inputs=readInputs(); const result=computeScore(inputs); const out={inputs,result,scales:SCALES}; const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`meta_explorer_export_${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); });
+  document.getElementById('downloadScales').addEventListener('click', ()=>{
+    const blob=new Blob([JSON.stringify(SCALES,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='scales.json'; a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const inputs=readInputs(); const result=computeScore(inputs);
+    const out={inputs,result,scales:SCALES};
+    const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=`meta_explorer_export_${Date.now()}.json`; a.click();
+    URL.revokeObjectURL(url);
+  });
 
   document.getElementById('exampleBtn').addEventListener('click', loadExamples);
 }
@@ -423,40 +467,6 @@ function loadExamples(){
 
 // initial setup
 attach(); resizeCanvas();
-
- // --- NEW COUNTRY + URBAN TOGGLE HANDLING ---
-  const countrySelect = document.getElementById('country_select');
-  const manualCountryDiv = document.getElementById('manual_country_div');
-  const manualCountryInput = document.getElementById('country_manual');
-  const urbanToggle = document.getElementById('urban_toggle');
-
-  function getCountryScore() {
-    let baseScore = 0;
-
-    if (countrySelect.value === "MANUAL") {
-      baseScore = parseFloat(manualCountryInput.value) || 0;
-    } else {
-      const selectedOption = countrySelect.options[countrySelect.selectedIndex];
-      baseScore = parseFloat(selectedOption.getAttribute('data-score')) || 0;
-    }
-
-    // Apply urban adjustment
-    if (urbanToggle.checked) {
-      baseScore = Math.min(1, baseScore + 0.05); // cap at 1
-    }
-
-    return baseScore;
-  }
-
-  // Show/hide manual input
-  countrySelect.addEventListener('change', () => {
-    manualCountryDiv.style.display =
-      countrySelect.value === "MANUAL" ? "block" : "none";
-    updateScore();
-  });
-
-  manualCountryInput.addEventListener('input', updateScore);
-  urbanToggle.addEventListener('change', updateScore);
 </script>
 </body>
 </html>
